@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 import folium
-from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster
+from streamlit_folium import st_folium
 
 st.set_page_config(
     page_title="서울시 공영주차장 정보",
@@ -19,6 +19,7 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file is not None:
 
+    # 파일 읽기
     if uploaded_file.name.endswith(".csv"):
         try:
             df = pd.read_csv(uploaded_file, encoding="utf-8")
@@ -27,12 +28,39 @@ if uploaded_file is not None:
     else:
         df = pd.read_excel(uploaded_file)
 
+    # 컬럼명 확인
+    st.expander("데이터 컬럼 보기").write(df.columns.tolist())
+
+    # 좌표 컬럼 자동 찾기
+    lat_col = None
+    lon_col = None
+
+    for col in df.columns:
+        c = col.strip().lower()
+
+        if c in ["위도", "lat", "latitude", "y좌표", "y"]:
+            lat_col = col
+
+        if c in ["경도", "lng", "lon", "longitude", "x좌표", "x"]:
+            lon_col = col
+
+    if lat_col is None or lon_col is None:
+        st.error("위도/경도 컬럼을 찾지 못했습니다.")
+        st.stop()
+
+    # 숫자로 변환
+    df[lat_col] = pd.to_numeric(df[lat_col], errors="coerce")
+    df[lon_col] = pd.to_numeric(df[lon_col], errors="coerce")
+
+    df = df.dropna(subset=[lat_col, lon_col])
+
+    # 사이드바
     st.sidebar.header("검색")
 
     if "구" in df.columns:
         gu = st.sidebar.selectbox(
-            "자치구 선택",
-            ["전체"] + sorted(df["구"].dropna().unique().tolist())
+            "자치구",
+            ["전체"] + sorted(df["구"].dropna().unique())
         )
 
         if gu != "전체":
@@ -42,58 +70,51 @@ if uploaded_file is not None:
         keyword = st.sidebar.text_input("주차장명 검색")
 
         if keyword:
-            df = df[df["주차장명"].str.contains(keyword, case=False, na=False)]
+            df = df[df["주차장명"].astype(str).str.contains(keyword, case=False)]
+
+    # 지도 중심 자동 계산
+    center_lat = df[lat_col].mean()
+    center_lon = df[lon_col].mean()
 
     m = folium.Map(
-        location=[37.5665, 126.9780],
-        zoom_start=11
+        location=[center_lat, center_lon],
+        zoom_start=12
     )
 
     marker_cluster = MarkerCluster().add_to(m)
 
+    # 마커 생성
     for _, row in df.iterrows():
-
-        try:
-            lat = float(row["위도"])
-            lon = float(row["경도"])
-        except:
-            continue
 
         popup = f"""
         <b>{row.get('주차장명','')}</b><br><br>
 
-        <b>주소</b><br>
-        {row.get('주소','')}<br><br>
+        주소 : {row.get('주소','')}<br>
 
-        <b>기본요금</b><br>
-        {row.get('기본요금','')}<br><br>
+        기본요금 : {row.get('기본요금','')}<br>
 
-        <b>추가요금</b><br>
-        {row.get('추가요금','')}<br><br>
+        추가요금 : {row.get('추가요금','')}<br>
 
-        <b>운영시간</b><br>
-        {row.get('운영시간','')}<br><br>
+        운영시간 : {row.get('운영시간','')}<br>
 
-        <b>전화번호</b><br>
-        {row.get('전화번호','')}<br><br>
+        전화번호 : {row.get('전화번호','')}<br>
 
-        <b>주차면수</b><br>
-        {row.get('주차면수','')}
+        주차면수 : {row.get('주차면수','')}
         """
 
         folium.Marker(
-            location=[lat, lon],
-            tooltip=row.get("주차장명", ""),
+            location=[row[lat_col], row[lon_col]],
+            tooltip=str(row.get("주차장명", "")),
             popup=folium.Popup(popup, max_width=350),
             icon=folium.Icon(color="blue", icon="info-sign")
         ).add_to(marker_cluster)
 
-    st.subheader("🗺️ 주차장 위치")
+    st.subheader("🗺️ 공영주차장 위치")
 
     st_folium(
         m,
         width=None,
-        height=600
+        height=650
     )
 
     st.subheader("📋 주차장 정보")
@@ -104,4 +125,4 @@ if uploaded_file is not None:
     )
 
 else:
-    st.info("서울시 공영주차장 CSV 또는 Excel 파일을 업로드하세요.")
+    st.info("CSV 또는 Excel 파일을 업로드하세요.") 파일을 업로드하세요.")
